@@ -7,14 +7,37 @@ public class Player : MonoBehaviour
     public float speed;
     public GameObject[] weapons;
     public bool[] hasWeapons;
+    public GameObject[] grenades;
+    public int hasGrenades;
+    public Camera followCamera;
+
+    public int ammo;
+    public int coin;
+    public int health;
+    public int hasGranades;
+
+    public int maxammo;
+    public int maxcoin;
+    public int maxhealth;
+    public int maxhasGranades;
+
     float hAxis;
     float vAxis;
     bool wDown;
     bool jDown;
+    bool fDown;
+    bool rDown;
     bool iDown;
+    bool sDown1;
+    bool sDown2;
+    bool sDown3;
 
     bool isJump;
     bool isDodge;
+    bool isSwap;
+    bool isReload;
+    bool isFireReady = true;
+    bool isBorder;
 
     Vector3 moveVec;
     Vector3 dodgeVec;
@@ -23,6 +46,9 @@ public class Player : MonoBehaviour
     Animator anim;
 
     GameObject nearObject;
+    Weapon equipWeapon;
+    int equipWeaponIndex = -1;
+    float fireDelay;
     private void Awake()
     {
         rigid = GetComponent<Rigidbody>();
@@ -41,7 +67,11 @@ public class Player : MonoBehaviour
         Move();
         Turn();
         Jump();
+        Attack();
+        Reload();
         Dodge();
+        Interation();
+        Swap();
     }
 
     void GetInput()
@@ -50,7 +80,12 @@ public class Player : MonoBehaviour
         vAxis = Input.GetAxisRaw("Vertical");
         wDown = Input.GetButton("Walk");
         jDown = Input.GetButtonDown("Jump");
+        fDown = Input.GetButton("Fire1");
+        rDown = Input.GetButtonDown("Reload");
         iDown = Input.GetButtonDown("Interation");
+        sDown1 = Input.GetButtonDown("Swap1");
+        sDown2 = Input.GetButtonDown("Swap2");
+        sDown3 = Input.GetButtonDown("Swap3");
     }
 
     void Move()
@@ -59,7 +94,12 @@ public class Player : MonoBehaviour
 
         if (isDodge)
             moveVec = dodgeVec;
-        transform.position += moveVec * speed * (wDown ? 0.3f : 1f) * Time.deltaTime;
+
+        if (isSwap || !isFireReady || isReload)
+            moveVec = Vector3.zero;
+
+        if (!isBorder)
+            transform.position += moveVec * speed * (wDown ? 0.3f : 1f) * Time.deltaTime;
 
         anim.SetBool("isRun", moveVec != Vector3.zero);
         anim.SetBool("isWalk", wDown);
@@ -68,10 +108,21 @@ public class Player : MonoBehaviour
     void Turn()
     {
         transform.LookAt(transform.position + moveVec);
+        if (fDown)
+        {
+            Ray ray = followCamera.ScreenPointToRay(Input.mousePosition);
+            RaycastHit rayHit;
+            if (Physics.Raycast(ray, out rayHit, 100))
+            {
+                Vector3 nextVec = rayHit.point - transform.position;
+                nextVec.y = 0;
+                transform.LookAt(transform.position + nextVec);
+            }
+        }
     }
     void Jump()
     {
-        if (jDown && moveVec == Vector3.zero && !isJump && !isDodge)
+        if (jDown && moveVec == Vector3.zero && !isJump && !isDodge && !isSwap)
         {
             rigid.AddForce(Vector3.up * 15, ForceMode.Impulse);
             anim.SetBool("isJump", true);
@@ -79,9 +130,51 @@ public class Player : MonoBehaviour
             isJump = true;
         }
     }
+
+    void Attack()
+    {
+        if (equipWeapon == null)
+            return;
+
+        fireDelay += Time.deltaTime;
+        isFireReady = equipWeapon.rate < fireDelay;
+
+        if(fDown && isFireReady && !isDodge && !isSwap)
+        {
+            equipWeapon.Use();
+            anim.SetTrigger(equipWeapon.type == Weapon.Type.Melee ? "doSwing" : "doShot");
+            fireDelay = 0;
+        }
+    }
+
+    void Reload()
+    {
+        if (equipWeapon == null)
+            return;
+
+        if (equipWeapon.type == Weapon.Type.Melee)
+            return;
+        if (ammo == 0)
+            return;
+
+        if(rDown && !isJump && !isDodge && !isSwap && isFireReady)
+        {
+            anim.SetTrigger("doReload");
+            isReload = true;
+            Invoke("ReloadOut", 3f);
+        }
+    }
+
+    void ReloadOut()
+    {
+        int reAmmo = ammo < equipWeapon.maxAmmo ? ammo : equipWeapon.maxAmmo;
+        equipWeapon.curAmmo = equipWeapon.maxAmmo;
+        ammo -= reAmmo;
+        isReload = false;
+    }
     void Dodge()
     {
-        if (jDown && moveVec != Vector3.zero && !isJump && !isDodge)
+        if (jDown && moveVec != Vector3.zero && !isJump && !isDodge && !isSwap)
         {
             dodgeVec = moveVec;
             speed *= 2;
@@ -97,6 +190,39 @@ public class Player : MonoBehaviour
         speed *= 0.5f;
         isDodge = false;
     }
+
+    void Swap()
+    {
+        if (sDown1 && (!hasWeapons[0] || equipWeaponIndex == 0))
+            return;
+        if (sDown2 && (!hasWeapons[0] || equipWeaponIndex == 1))
+            return;
+        if (sDown3 && (!hasWeapons[0] || equipWeaponIndex == 2))
+            return;
+        int weaponIndex = -1;
+        if (sDown1) weaponIndex = 0;
+        if (sDown2) weaponIndex = 1;
+        if (sDown3) weaponIndex = 2;
+
+        if((sDown1 || sDown2 || sDown3) && !isJump && !isDodge)
+        {
+            if (equipWeapon != null) {
+                equipWeapon.gameObject.SetActive(false); }
+            equipWeaponIndex = weaponIndex;
+            equipWeapon = weapons[weaponIndex].GetComponent<Weapon>();
+            equipWeapon.gameObject.SetActive(true);
+
+            anim.SetTrigger("doSwap");
+
+            isSwap = true;
+
+            Invoke("SwapOut", 0.4f);
+        }
+    }
+    void SwapOut()
+    {
+        isSwap = false;
+    }
     void Interation()
     {
         if(iDown && nearObject != null && !isJump && !isDodge)
@@ -111,6 +237,20 @@ public class Player : MonoBehaviour
             }
         }
     }
+    void FreezeRotation()
+    {
+        rigid.angularVelocity = Vector3.zero;
+    }
+    void StopToWall()
+    {
+        Debug.DrawRay(transform.position, transform.forward * 5, Color.green);
+        isBorder = Physics.Raycast(transform.position, transform.forward, 5, LayerMask.GetMask("Wall"));
+    }
+    private void FixedUpdate()
+    {
+        FreezeRotation();
+        StopToWall();
+    }
     private void OnCollisionEnter(Collision collision)
     {
         if(collision.gameObject.tag == "Floor")
@@ -119,6 +259,40 @@ public class Player : MonoBehaviour
             isJump = false;
         }
         
+    }
+
+    private void OnTriggerEnter(Collider other)
+    {
+        if(other.tag == "Item")
+        {
+            Item item = other.GetComponent<Item>();
+            switch (item.type)
+            {
+                case Item.Type.Ammo:
+                    ammo += item.value;
+                    if (ammo > maxammo)
+                        ammo = maxammo;
+                    break;
+                case Item.Type.Coin:
+                    coin += item.value;
+                    if (coin > maxcoin)
+                        coin = maxcoin;
+                    break;
+                case Item.Type.Heart:
+                    health += item.value;
+                    if (health > maxhealth)
+                        health = maxhealth;
+                    break;
+                case Item.Type.Grenade:
+                    grenades[hasGranades].SetActive(true);
+                    hasGranades += item.value;
+                    if (hasGranades > maxhasGranades)
+                        hasGranades = maxhasGranades;
+
+                    break;
+            }
+            Destroy(other.gameObject);
+        }
     }
     private void OnTriggerStay(Collider other)
     {
